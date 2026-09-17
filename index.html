@@ -1,0 +1,635 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TITSA Horarios</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<style>
+  :root { --bg:#f4f5f7; --card:#fff; --ink:#1d2433; --muted:#6b7280; --line:#e5e7eb; --brand:#0b6e4f; --brand2:#e8f5f0; --warn:#b45309; --danger:#b91c1c; --ok:#047857; --future:#1d4ed8; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif; background:var(--bg); color:var(--ink); font-size:14px; }
+  header { background:var(--brand); color:#fff; padding:10px 16px; display:flex; align-items:center; gap:16px; flex-wrap:wrap; }
+  header h1 { font-size:17px; margin:0; }
+  header nav a { color:#fff; text-decoration:none; margin-right:12px; opacity:.85; padding:4px 0; border-bottom:2px solid transparent; }
+  header nav a.active { opacity:1; border-bottom-color:#fff; }
+  header .user { margin-left:auto; font-size:12px; opacity:.9; }
+  header .user button { margin-left:8px; }
+  main { padding:16px; max-width:1500px; margin:0 auto; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:14px; margin-bottom:14px; }
+  .row { display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end; }
+  .grow { flex:1; }
+  label { display:block; font-size:12px; color:var(--muted); margin-bottom:2px; }
+  input, select, textarea { font:inherit; padding:6px 8px; border:1px solid #cbd5e1; border-radius:6px; background:#fff; min-width:0; }
+  input[type=text], input[type=date], input[type=number], select { height:32px; }
+  table input, table select { width:100%; height:26px; padding:2px 5px; font-size:13px; }
+  table input.hora { width:78px; }
+  button { font:inherit; padding:6px 12px; border-radius:6px; border:1px solid var(--brand); background:var(--brand); color:#fff; cursor:pointer; }
+  button.sec { background:#fff; color:var(--brand); }
+  button.danger { background:#fff; color:var(--danger); border-color:var(--danger); }
+  button.mini { padding:2px 7px; font-size:12px; }
+  button:disabled { opacity:.5; cursor:default; }
+  table { border-collapse:collapse; width:100%; font-size:13px; }
+  th, td { border:1px solid var(--line); padding:4px 6px; text-align:left; vertical-align:top; white-space:nowrap; }
+  th { background:#f8fafc; position:sticky; top:0; font-weight:600; }
+  td.wrap, th.wrap { white-space:normal; }
+  .tblwrap { overflow:auto; max-height:70vh; }
+  .badge { display:inline-block; padding:1px 7px; border-radius:10px; font-size:11px; font-weight:600; }
+  .b-vigente { background:#d1fae5; color:var(--ok); }
+  .b-historico { background:#e5e7eb; color:#374151; }
+  .b-futuro { background:#dbeafe; color:var(--future); }
+  .b-borrador { background:#fef3c7; color:var(--warn); }
+  .muted { color:var(--muted); }
+  .chips a { display:inline-block; background:var(--brand2); color:var(--brand); padding:2px 8px; border-radius:10px; margin:2px; text-decoration:none; font-size:12px; }
+  a { color:var(--brand); }
+  h2 { font-size:16px; margin:0 0 10px; }
+  h3 { font-size:14px; margin:14px 0 6px; }
+  .split { display:grid; grid-template-columns:280px 1fr; gap:14px; }
+  @media (max-width:900px) { .split { grid-template-columns:1fr; } }
+  .vlist a { display:block; padding:6px 8px; border-radius:6px; text-decoration:none; color:var(--ink); border:1px solid transparent; }
+  .vlist a.sel { background:var(--brand2); border-color:var(--brand); }
+  .msg { padding:8px 10px; border-radius:6px; margin:8px 0; }
+  .msg.err { background:#fee2e2; color:var(--danger); }
+  .msg.ok { background:#d1fae5; color:var(--ok); }
+  .msg.info { background:#eff6ff; color:#1e40af; }
+  .login { max-width:380px; margin:60px auto; }
+  .toolbar { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px; align-items:center; }
+  .diff-add { background:#d1fae5; }
+  .diff-del { background:#fee2e2; text-decoration:line-through; }
+  .diff-chg { background:#fef3c7; }
+  .kv { display:grid; grid-template-columns:repeat(auto-fill,minmax(180px,1fr)); gap:8px; }
+  .kv div span { display:block; font-size:11px; color:var(--muted); }
+  td.del { opacity:.4; text-decoration:line-through; }
+  .small { font-size:12px; }
+  pre { white-space:pre-wrap; font-size:12px; background:#f8fafc; padding:8px; border-radius:6px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>TITSA Horarios</h1>
+  <nav id="nav"></nav>
+  <div class="user" id="userbox"></div>
+</header>
+<main id="app"></main>
+
+<script>
+// =====================================================================
+// CONFIGURACION: pega aqui la URL y la anon key de tu proyecto Supabase
+// (Supabase > Project Settings > API). Si lo dejas vacio, la app te lo
+// pedira la primera vez y lo guardara en este navegador.
+// =====================================================================
+const CONFIG = {
+  url: '',
+  anonKey: ''
+};
+
+// ---------------------------------------------------------------------
+let sb = null, user = null, perfil = null;
+const $ = (s, r = document) => r.querySelector(s);
+const app = $('#app');
+const esc = s => (s == null ? '' : String(s)).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const t5 = t => (t ? String(t).slice(0, 5) : '');
+const fdate = d => d ? d.split('-').reverse().join('/') : '';
+const fts = ts => ts ? new Date(ts).toLocaleString('es-ES') : '';
+const badge = e => `<span class="badge b-${esc(e)}">${esc(e)}</span>`;
+const lineasTxt = arr => (arr || []).map(n => String(n).padStart(3, '0')).join(' + ');
+const esEditor = () => perfil && perfil.rol === 'editor';
+function msg(kind, text) { return `<div class="msg ${kind}">${esc(text)}</div>`; }
+function fail(e) { console.error(e); alert('Error: ' + (e.message || e)); }
+function parseHoraCelda(v) {
+  v = (v || '').trim();
+  if (!v || /^-+$/.test(v)) return { hora: null, texto: v || null };
+  const m = v.match(/^(\d{1,2}):(\d{2})\s*(.*)$/);
+  if (m) return { hora: `${m[1].padStart(2,'0')}:${m[2]}`, texto: m[3] ? m[3].trim() : null };
+  return { hora: null, texto: v };
+}
+function celdaTxt(h) { if (!h) return ''; return (h.hora ? t5(h.hora) : '') + (h.texto ? (h.hora ? ' ' : '') + h.texto : ''); }
+function horaOrNull(v) { v = (v || '').trim(); return /^\d{1,2}:\d{2}$/.test(v) ? v.padStart(5, '0') : null; }
+
+// ---------------------------------------------------------------------
+// Arranque
+// ---------------------------------------------------------------------
+async function boot() {
+  let url = CONFIG.url || localStorage.getItem('sb_url') || '';
+  let key = CONFIG.anonKey || localStorage.getItem('sb_key') || '';
+  if (!url || !key) return renderConfig();
+  try { sb = window.supabase.createClient(url, key); } catch (e) { return renderConfig(e.message); }
+  const { data } = await sb.auth.getSession();
+  user = data.session ? data.session.user : null;
+  sb.auth.onAuthStateChange(async (_e, s) => { user = s ? s.user : null; await cargarPerfil(); route(); });
+  await cargarPerfil();
+  window.addEventListener('hashchange', route);
+  route();
+}
+async function cargarPerfil() {
+  perfil = null;
+  if (!user) return;
+  const { data } = await sb.from('perfiles').select('*').eq('id', user.id).maybeSingle();
+  perfil = data || { id: user.id, email: user.email, rol: 'lector' };
+}
+function renderConfig(err) {
+  $('#nav').innerHTML = ''; $('#userbox').innerHTML = '';
+  app.innerHTML = `<div class="card login"><h2>Conectar con Supabase</h2>
+    ${err ? msg('err', err) : ''}
+    <label>URL del proyecto</label><input id="cfg_url" type="text" placeholder="https://xxxx.supabase.co" style="width:100%">
+    <label style="margin-top:8px">anon key</label><input id="cfg_key" type="text" style="width:100%">
+    <div style="margin-top:12px"><button id="cfg_ok">Guardar y continuar</button></div>
+    <p class="muted small">Se guarda solo en este navegador. También puedes escribirlo en CONFIG dentro de index.html.</p></div>`;
+  $('#cfg_ok').onclick = () => {
+    localStorage.setItem('sb_url', $('#cfg_url').value.trim());
+    localStorage.setItem('sb_key', $('#cfg_key').value.trim());
+    boot();
+  };
+}
+function renderLogin(err) {
+  $('#nav').innerHTML = ''; $('#userbox').innerHTML = '';
+  app.innerHTML = `<div class="card login"><h2>Iniciar sesión</h2>${err ? msg('err', err) : ''}
+    <label>Email</label><input id="l_email" type="text" style="width:100%">
+    <label style="margin-top:8px">Contraseña</label><input id="l_pass" type="password" style="width:100%">
+    <div style="margin-top:12px"><button id="l_ok">Entrar</button></div></div>`;
+  const go = async () => {
+    const { error } = await sb.auth.signInWithPassword({ email: $('#l_email').value.trim(), password: $('#l_pass').value });
+    if (error) renderLogin(error.message);
+  };
+  $('#l_ok').onclick = go;
+  $('#l_pass').onkeydown = e => { if (e.key === 'Enter') go(); };
+}
+
+// ---------------------------------------------------------------------
+// Router
+// ---------------------------------------------------------------------
+const RUTAS = [
+  ['lineas', 'Líneas'], ['turnos', 'Turnos'], ['paradas', 'Paradas'], ['historial', 'Historial'],
+  ['importar', 'Importar', true], ['usuarios', 'Usuarios', true]
+];
+function route() {
+  if (!user) return renderLogin();
+  const h = location.hash.replace(/^#\/?/, '') || 'lineas';
+  const [path, qs] = h.split('?');
+  const seg = path.split('/');
+  const params = Object.fromEntries(new URLSearchParams(qs || ''));
+  $('#nav').innerHTML = RUTAS.filter(r => !r[2] || esEditor())
+    .map(r => `<a href="#/${r[0]}" class="${seg[0] === r[0] || (r[0]==='lineas' && seg[0]==='horario') ? 'active' : ''}">${r[1]}</a>`).join('');
+  $('#userbox').innerHTML = `${esc(user.email)} · ${esc(perfil ? perfil.rol : '')} <button class="mini sec" id="logout">Salir</button>`;
+  $('#logout').onclick = () => sb.auth.signOut();
+  const fn = { lineas: vLineas, horario: () => vHorario(seg[1], params.v), turnos: vTurnos, paradas: () => vParadas(params),
+               historial: () => vHistorial(params), importar: vImportar, usuarios: vUsuarios }[seg[0]] || vLineas;
+  app.innerHTML = '<div class="muted">Cargando…</div>';
+  Promise.resolve(fn()).catch(fail);
+}
+
+// ---------------------------------------------------------------------
+// Vista: Lineas
+// ---------------------------------------------------------------------
+async function vLineas() {
+  const [{ data: lineas, error: e1 }, { data: horarios, error: e2 }, { data: vers, error: e3 }] = await Promise.all([
+    sb.from('lineas').select('*').order('codigo'),
+    sb.from('horarios').select('*').order('clave'),
+    sb.from('v_versiones').select('id,horario_id,etiqueta,estado,fecha_vigencia_inicio').order('fecha_vigencia_inicio', { ascending: false })
+  ]);
+  if (e1 || e2 || e3) throw (e1 || e2 || e3);
+  const vigPorH = {}; const nPorH = {}; const futPorH = {};
+  for (const v of vers) {
+    nPorH[v.horario_id] = (nPorH[v.horario_id] || 0) + 1;
+    if (v.estado === 'vigente') vigPorH[v.horario_id] = v;
+    if (v.estado === 'futuro') futPorH[v.horario_id] = v;
+  }
+  const hPorL = {};
+  for (const h of horarios) for (const l of h.lineas) (hPorL[l] = hPorL[l] || []).push(h);
+  const filtro = `<div class="toolbar"><input type="text" id="f_linea" placeholder="Filtrar línea o nombre…" style="width:280px">
+    ${esEditor() ? '<button class="sec" id="nuevo_h">+ Nuevo horario</button>' : ''}</div>`;
+  const filas = lineas.map(l => {
+    const hs = (hPorL[l.codigo] || []).map(h => {
+      const v = vigPorH[h.id], f = futPorH[h.id];
+      const est = v ? `vig. ${esc(v.etiqueta || '')} ${fdate(v.fecha_vigencia_inicio)}` : (f ? `<span class="b-futuro badge">solo futuro</span>` : '<span class="b-borrador badge">sin versión vigente</span>');
+      return `<a href="#/horario/${h.id}${v ? '?v=' + v.id : ''}" title="${est.replace(/<[^>]+>/g,'')}">${esc(h.clave)} <span class="muted">(${nPorH[h.id] || 0})</span></a>`;
+    }).join('');
+    return `<tr data-txt="${esc((l.codigo + ' ' + (l.nombre || '')).toLowerCase())}"><td>${String(l.codigo).padStart(3,'0')}</td>
+      <td class="wrap">${esc(l.nombre || '')} ${esEditor() ? `<button class="mini sec" data-edit="${l.codigo}">✎</button>` : ''}</td>
+      <td class="wrap chips">${hs || '<span class="muted">—</span>'}</td></tr>`;
+  }).join('');
+  app.innerHTML = `<div class="card"><h2>Líneas y horarios</h2>${filtro}
+    <p class="muted small">Cada horario es una combinación línea + calendario (L=laborables, S=sábados, F=festivos) + dirección (I=ida, V=vuelta). Entre paréntesis, número de versiones.</p>
+    <div class="tblwrap"><table><thead><tr><th>Línea</th><th>Nombre</th><th>Horarios</th></tr></thead><tbody>${filas}</tbody></table></div></div>`;
+  $('#f_linea').oninput = e => { const q = e.target.value.toLowerCase(); app.querySelectorAll('tbody tr').forEach(tr => tr.style.display = tr.dataset.txt.includes(q) ? '' : 'none'); };
+  app.querySelectorAll('[data-edit]').forEach(b => b.onclick = async () => {
+    const l = lineas.find(x => x.codigo == b.dataset.edit);
+    const nombre = prompt('Nombre de la línea ' + l.codigo, l.nombre || '');
+    if (nombre == null) return;
+    const { error } = await sb.from('lineas').update({ nombre }).eq('codigo', l.codigo);
+    if (error) return fail(error); vLineas();
+  });
+  const nb = $('#nuevo_h'); if (nb) nb.onclick = nuevoHorario;
+}
+async function nuevoHorario() {
+  const ls = prompt('Línea(s), separadas por coma (ej. 11,12):'); if (!ls) return;
+  const lineas = ls.split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n));
+  const cal = prompt('Calendario (LSF, Lxx, xSF, xxF, xSx…):', 'LSF'); if (!cal) return;
+  const dir = prompt('Dirección (IV, Ix, xV):', 'IV'); if (!dir) return;
+  const variante = prompt('Variante (vacío, ESPECIAL_NAVIDAD, OBRA, REF):', '') || null;
+  const clave = lineas.map(n => String(n).padStart(4, '0')).join('_') + '_' + cal + '_' + dir + (variante ? '_' + variante : '');
+  for (const n of lineas) await sb.from('lineas').upsert({ codigo: n }, { onConflict: 'codigo', ignoreDuplicates: true });
+  const { data, error } = await sb.from('horarios').insert({ clave, lineas, calendario: cal, direccion: dir, variante }).select().single();
+  if (error) return fail(error);
+  location.hash = `#/horario/${data.id}`;
+}
+
+// ---------------------------------------------------------------------
+// Vista: Horario (versiones, rejilla, turnos, notas, edicion, diff)
+// ---------------------------------------------------------------------
+let edit = { on: false };
+async function cargarVersion(vid) {
+  const [{ data: v }, { data: cps }, { data: exps }, { data: horas }, { data: turnos }, { data: notas }] = await Promise.all([
+    sb.from('v_versiones').select('*').eq('id', vid).single(),
+    sb.from('checkpoints').select('*').eq('version_id', vid).order('sentido').order('orden'),
+    sb.from('expediciones').select('*').eq('version_id', vid).order('sentido').order('orden'),
+    sb.from('expedicion_horas').select('*, expediciones!inner(version_id)').eq('expediciones.version_id', vid),
+    sb.from('turnos').select('*').eq('version_id', vid).order('orden').order('servicio'),
+    sb.from('notas').select('*').eq('version_id', vid).order('numero')
+  ]);
+  const hmap = {};
+  for (const h of horas || []) hmap[h.expedicion_id + ':' + h.checkpoint_id] = h;
+  return { v, cps: cps || [], exps: exps || [], hmap, turnos: turnos || [], notas: notas || [] };
+}
+async function vHorario(hid, vid) {
+  const { data: h, error } = await sb.from('horarios').select('*').eq('id', hid).single();
+  if (error) throw error;
+  const { data: vers } = await sb.from('v_versiones').select('*').eq('horario_id', hid).order('fecha_vigencia_inicio', { ascending: false }).order('id', { ascending: false });
+  if (!vid && vers.length) vid = (vers.find(v => v.estado === 'vigente') || vers[0]).id;
+  const V = vid ? await cargarVersion(vid) : null;
+  edit = { on: false };
+
+  const lista = vers.map(v => `<a href="#/horario/${hid}?v=${v.id}" class="${v.id == vid ? 'sel' : ''}">
+      <b>${esc(v.etiqueta || 'sin etiqueta')}</b> ${badge(v.estado)}<br><span class="muted small">desde ${fdate(v.fecha_vigencia_inicio)}${v.fecha_vigencia_fin ? ' hasta ' + fdate(v.fecha_vigencia_fin) : ''} · ${esc(v.origen)}</span></a>`).join('');
+  app.innerHTML = `<div class="card"><div class="row"><div class="grow"><h2>${esc(h.clave)} <span class="muted">· líneas ${lineasTxt(h.lineas)} · ${esc(h.calendario)} · ${esc(h.direccion)}${h.variante ? ' · ' + esc(h.variante) : ''}</span></h2></div>
+    ${esEditor() ? `<button class="sec" id="b_nueva_vacia">+ Versión vacía</button>` : ''}</div>
+    <div class="split"><div class="vlist card" style="margin:0">${lista || '<span class="muted">Sin versiones</span>'}</div><div id="vpanel"></div></div></div>`;
+  const bnv = $('#b_nueva_vacia'); if (bnv) bnv.onclick = async () => {
+    const etq = prompt('Etiqueta (ej. v16):', ''); const f = prompt('Fecha de vigencia (AAAA-MM-DD):', new Date().toISOString().slice(0, 10)); if (!f) return;
+    const { data, error } = await sb.from('versiones').insert({ horario_id: hid, etiqueta: etq || null, fecha_vigencia_inicio: f, origen: 'manual', estado_manual: 'borrador', creado_por: user.id }).select().single();
+    if (error) return fail(error); location.hash = `#/horario/${hid}?v=${data.id}`;
+  };
+  if (V) renderVersion(h, vers, V);
+}
+
+function renderVersion(h, vers, V) {
+  const p = $('#vpanel'); const v = V.v; const ed = edit.on;
+  const prev = vers.filter(x => x.id !== v.id && (x.fecha_vigencia_inicio < v.fecha_vigencia_inicio || (x.fecha_vigencia_inicio === v.fecha_vigencia_inicio && x.id < v.id)))[0];
+  const tb = esEditor() ? `<div class="toolbar">
+      ${ed ? `<button id="b_guardar">Guardar todo</button><button class="sec" id="b_cancelar">Cancelar</button>` : `<button id="b_editar">Editar</button>`}
+      <button class="sec" id="b_clonar" ${ed ? 'disabled' : ''}>Nueva versión (clonar esta)</button>
+      ${prev ? `<button class="sec" id="b_diff" ${ed ? 'disabled' : ''}>Comparar con ${esc(prev.etiqueta || fdate(prev.fecha_vigencia_inicio))}</button>` : ''}
+      ${v.estado_manual === 'borrador' ? `<button class="sec" id="b_publicar" ${ed ? 'disabled' : ''}>Publicar</button>` : ''}
+      <button class="danger" id="b_borrar" ${ed ? 'disabled' : ''}>Eliminar versión</button>
+      <a class="small" href="#/historial?version_id=${v.id}">Historial de esta versión</a></div>`
+    : `<div class="toolbar">${prev ? `<button class="sec" id="b_diff">Comparar con ${esc(prev.etiqueta || fdate(prev.fecha_vigencia_inicio))}</button>` : ''}<a class="small" href="#/historial?version_id=${v.id}">Historial de esta versión</a></div>`;
+
+  const cab = ed ? `<div class="kv">
+      ${inp('etiqueta', 'Etiqueta', v.etiqueta)}${inp('fecha_vigencia_inicio', 'Vigente desde', v.fecha_vigencia_inicio, 'date')}${inp('fecha_vigencia_fin', 'Vigente hasta (opcional)', v.fecha_vigencia_fin, 'date')}
+      ${inp('fecha_generado', 'Generado', v.fecha_generado, 'date')}${inp('temporada', 'Temporada', v.temporada)}${inp('calendario_texto', 'Calendario (texto)', v.calendario_texto)}
+      ${inp('n_buses', 'Nº buses', v.n_buses, 'number')}${inp('flota_texto', 'Flota (texto)', v.flota_texto)}${inp('archivo_pdf', 'PDF origen', v.archivo_pdf)}
+      <div><span>Estado manual</span><select data-h="estado_manual"><option value="publicada" ${v.estado_manual==='publicada'?'selected':''}>publicada</option><option value="borrador" ${v.estado_manual==='borrador'?'selected':''}>borrador</option></select></div>
+      <div style="grid-column:1/-1"><span>Observaciones</span><textarea data-h="observaciones" style="width:100%" rows="2">${esc(v.observaciones)}</textarea></div></div>`
+    : `<div class="kv">
+      <div><span>Versión</span>${esc(v.etiqueta || '—')} ${badge(v.estado)}</div><div><span>Vigente desde</span>${fdate(v.fecha_vigencia_inicio)}${v.fecha_vigencia_fin ? ' hasta ' + fdate(v.fecha_vigencia_fin) : ''}</div>
+      <div><span>Generado</span>${fdate(v.fecha_generado) || '—'}</div><div><span>Temporada</span>${esc(v.temporada || '—')}</div><div><span>Calendario</span>${esc(v.calendario_texto || '—')}</div>
+      <div><span>Nº buses</span>${v.n_buses ?? '—'}</div><div><span>Flota</span>${esc(v.flota_texto || '—')}</div><div><span>Origen</span>${esc(v.origen)} ${v.archivo_pdf ? '· ' + esc(v.archivo_pdf) : ''}</div>
+      ${v.observaciones ? `<div style="grid-column:1/-1"><span>Observaciones</span>${esc(v.observaciones)}</div>` : ''}</div>`;
+
+  p.innerHTML = `<div class="card">${tb}${cab}</div>
+    <div class="card"><h3 style="margin-top:0">Puntos de control (columnas de la rejilla)</h3><div id="sec_cps"></div></div>
+    <div class="card"><h3 style="margin-top:0">Rejilla de expediciones</h3><div id="sec_ida"></div><div id="sec_vuelta"></div></div>
+    <div class="card"><h3 style="margin-top:0">Turnos / relevos</h3><div id="sec_turnos"></div></div>
+    <div class="card"><h3 style="margin-top:0">Notas</h3><div id="sec_notas"></div></div>
+    <div id="sec_diff"></div>`;
+
+  if (ed) {
+    edit.state = edit.state || {
+      cps: V.cps.map(x => ({ ...x })), exps: V.exps.map(x => ({ ...x })), hm: { ...V.hmap },
+      turnos: V.turnos.map(x => ({ ...x })), notas: V.notas.map(x => ({ ...x })),
+      del: { cps: [], exps: [], turnos: [], notas: [] }, cells: {}
+    };
+  }
+  renderCps(V); renderRejilla(V, 'ida'); renderRejilla(V, 'vuelta'); renderTurnosSec(V); renderNotasSec(V);
+
+  const on = (id, fn) => { const b = $(id); if (b) b.onclick = fn; };
+  on('#b_editar', () => { edit = { on: true }; renderVersion(h, vers, V); });
+  on('#b_cancelar', () => { edit = { on: false }; renderVersion(h, vers, V); });
+  on('#b_guardar', () => guardarTodo(h, V));
+  on('#b_clonar', async () => {
+    const etq = prompt('Etiqueta de la nueva versión:', sugerirEtiqueta(v.etiqueta)); if (etq == null) return;
+    const f = prompt('Fecha de vigencia (AAAA-MM-DD):', new Date().toISOString().slice(0, 10)); if (!f) return;
+    const { data, error } = await sb.rpc('clonar_version', { p_version_id: v.id, p_etiqueta: etq || null, p_fecha: f, p_borrador: true });
+    if (error) return fail(error); location.hash = `#/horario/${h.id}?v=${data}`;
+  });
+  on('#b_publicar', async () => { const { error } = await sb.from('versiones').update({ estado_manual: 'publicada' }).eq('id', v.id); if (error) return fail(error); route(); });
+  on('#b_borrar', async () => {
+    if (!confirm(`Eliminar la versión ${v.etiqueta || v.id} con su rejilla, turnos y notas. El historial de cambios se conserva. ¿Seguro?`)) return;
+    const { error } = await sb.from('versiones').delete().eq('id', v.id); if (error) return fail(error); location.hash = `#/horario/${h.id}`;
+  });
+  on('#b_diff', async () => { const P = await cargarVersion(prev.id); $('#sec_diff').innerHTML = renderDiff(P, V); $('#sec_diff').scrollIntoView(); });
+}
+function inp(k, label, val, type = 'text') { return `<div><span>${label}</span><input type="${type}" data-h="${k}" value="${esc(val ?? '')}" style="width:100%"></div>`; }
+function sugerirEtiqueta(e) { const m = (e || '').match(/^v(\d+)$/); return m ? 'v' + String(+m[1] + 1).padStart(2, '0') : ''; }
+
+// --- Puntos de control
+function renderCps(V) {
+  const S = edit.state; const rows = edit.on ? S.cps : V.cps;
+  if (edit.on) S.cps.forEach((c, i) => c._k = c._k || ('c' + i + '_' + Math.random().toString(36).slice(2, 6)));
+  const html = ['ida', 'vuelta'].map(s => {
+    const r = rows.filter(c => c.sentido === s);
+    const trs = r.map((c, i) => edit.on
+      ? `<tr><td><input type="number" data-cp="${c._k}" data-f="orden" value="${c.orden}" style="width:60px"></td><td><input data-cp="${c._k}" data-f="etiqueta" value="${esc(c.etiqueta)}" style="min-width:220px"></td><td><input data-cp="${c._k}" data-f="parada_codigo" value="${esc(c.parada_codigo)}" style="width:90px"></td><td><button class="mini danger" data-delcp="${c._k}">✕</button></td></tr>`
+      : `<tr><td>${c.orden}</td><td class="wrap">${esc(c.etiqueta)}</td><td>${c.parada_codigo ? `<a href="#/paradas?parada=${esc(c.parada_codigo)}">${esc(c.parada_codigo)}</a>` : '—'}</td></tr>`).join('');
+    return `<div style="display:inline-block;vertical-align:top;margin-right:24px;min-width:340px"><b>${s.toUpperCase()}</b>
+      <table><thead><tr><th>#</th><th>Etiqueta (ej. "Salidas desde Intercambiador")</th><th>Parada</th>${edit.on ? '<th></th>' : ''}</tr></thead><tbody>${trs || `<tr><td colspan="4" class="muted">sin puntos de control</td></tr>`}</tbody></table>
+      ${edit.on ? `<button class="mini sec" data-addcp="${s}" style="margin-top:4px">+ punto de control</button>` : ''}</div>`;
+  }).join('');
+  $('#sec_cps').innerHTML = html + (edit.on ? '<p class="muted small">Al guardar, las columnas de la rejilla se actualizan con estos puntos de control.</p>' : '');
+  if (!edit.on) return;
+  $('#sec_cps').querySelectorAll('[data-cp]').forEach(el => el.oninput = () => { const c = S.cps.find(x => x._k === el.dataset.cp); c[el.dataset.f] = el.dataset.f === 'orden' ? +el.value : (el.value.trim() || null); });
+  $('#sec_cps').querySelectorAll('[data-delcp]').forEach(b => b.onclick = () => { const i = S.cps.findIndex(x => x._k === b.dataset.delcp); const c = S.cps[i]; if (c.id) S.del.cps.push(c.id); S.cps.splice(i, 1); renderCps(V); renderRejilla(V, 'ida'); renderRejilla(V, 'vuelta'); });
+  $('#sec_cps').querySelectorAll('[data-addcp]').forEach(b => b.onclick = () => { const s = b.dataset.addcp; const n = S.cps.filter(c => c.sentido === s).length; S.cps.push({ sentido: s, orden: n + 1, etiqueta: '', parada_codigo: null, _k: 'n' + Math.random().toString(36).slice(2, 8) }); renderCps(V); renderRejilla(V, 'ida'); renderRejilla(V, 'vuelta'); });
+}
+// --- Rejilla
+function renderRejilla(V, s) {
+  const S = edit.state;
+  const cps = (edit.on ? S.cps : V.cps).filter(c => c.sentido === s).sort((a, b) => a.orden - b.orden);
+  const exps = (edit.on ? S.exps : V.exps).filter(e => e.sentido === s).sort((a, b) => a.orden - b.orden);
+  if (edit.on) exps.forEach((e, i) => e._k = e._k || ('e' + i + '_' + Math.random().toString(36).slice(2, 6)));
+  const cellVal = (e, c) => { if (edit.on && S.cells[e._k + '|' + (c.id || c._k)] != null) return S.cells[e._k + '|' + (c.id || c._k)]; return (e.id && c.id) ? celdaTxt(V.hmap[e.id + ':' + c.id]) : ''; };
+  const head = `<tr><th>#</th><th>Marcas</th><th>Servicio</th><th>Línea</th>${cps.map(c => `<th class="wrap" style="max-width:130px">${esc(c.etiqueta)}${c.parada_codigo ? `<br><span class="muted">${esc(c.parada_codigo)}</span>` : ''}</th>`).join('')}<th>Obs.</th>${edit.on ? '<th></th>' : ''}</tr>`;
+  const trs = exps.map(e => edit.on
+    ? `<tr><td><input type="number" data-ex="${e._k}" data-f="orden" value="${e.orden}" style="width:55px"></td><td><input data-ex="${e._k}" data-f="marcas" value="${esc(e.marcas)}" style="width:80px"></td><td><input data-ex="${e._k}" data-f="servicio" value="${esc(e.servicio)}" style="width:80px"></td><td><input type="number" data-ex="${e._k}" data-f="linea_codigo" value="${e.linea_codigo ?? ''}" style="width:60px"></td>
+        ${cps.map(c => `<td><input class="hora" data-cell="${e._k}|${c.id || c._k}" value="${esc(cellVal(e, c))}" placeholder="--"></td>`).join('')}
+        <td><input data-ex="${e._k}" data-f="observaciones" value="${esc(e.observaciones)}" style="width:120px"></td><td><button class="mini danger" data-delex="${e._k}">✕</button></td></tr>`
+    : `<tr><td class="muted">${e.orden}</td><td>${esc(e.marcas || '')}</td><td><b>${esc(e.servicio || '')}</b></td><td>${e.linea_codigo ?? ''}</td>${cps.map(c => `<td>${esc(celdaTxt(V.hmap[e.id + ':' + c.id]))}</td>`).join('')}<td class="wrap">${esc(e.observaciones || '')}</td></tr>`).join('');
+  $('#sec_' + s).innerHTML = `<h3>${s.toUpperCase()} <span class="muted small">${exps.length} expediciones</span></h3>
+    <div class="tblwrap"><table><thead>${head}</thead><tbody>${trs || `<tr><td colspan="${5 + cps.length}" class="muted">sin expediciones</td></tr>`}</tbody></table></div>
+    ${edit.on ? `<button class="mini sec" data-addex="${s}" style="margin-top:4px">+ expedición</button> <button class="mini sec" data-addex5="${s}">+ 5 expediciones</button> <span class="muted small">Celdas: "05:10", "07:10 (20')", "--", "S/C"… Tab para avanzar.</span>` : ''}`;
+  if (!edit.on) return;
+  const box = $('#sec_' + s);
+  box.querySelectorAll('[data-ex]').forEach(el => el.oninput = () => { const e = S.exps.find(x => x._k === el.dataset.ex); const f = el.dataset.f; e[f] = (f === 'orden' || f === 'linea_codigo') ? (el.value === '' ? null : +el.value) : (el.value.trim() || null); });
+  box.querySelectorAll('[data-cell]').forEach(el => el.oninput = () => { S.cells[el.dataset.cell] = el.value; });
+  box.querySelectorAll('[data-delex]').forEach(b => b.onclick = () => { const i = S.exps.findIndex(x => x._k === b.dataset.delex); const e = S.exps[i]; if (e.id) S.del.exps.push(e.id); S.exps.splice(i, 1); renderRejilla(V, s); });
+  const add = (n) => { let max = Math.max(0, ...S.exps.filter(e => e.sentido === s).map(e => e.orden || 0)); for (let i = 0; i < n; i++) S.exps.push({ sentido: s, orden: ++max, servicio: null, linea_codigo: null, marcas: null, observaciones: null, _k: 'n' + Math.random().toString(36).slice(2, 8) }); renderRejilla(V, s); };
+  box.querySelector('[data-addex]').onclick = () => add(1);
+  box.querySelector('[data-addex5]').onclick = () => add(5);
+}
+// --- Turnos
+function renderTurnosSec(V) {
+  const S = edit.state; const rows = edit.on ? S.turnos : V.turnos;
+  if (edit.on) rows.forEach((t, i) => t._k = t._k || ('t' + i + '_' + Math.random().toString(36).slice(2, 6)));
+  const trs = rows.map(t => edit.on
+    ? `<tr><td><input type="number" data-t="${t._k}" data-f="orden" value="${t.orden ?? ''}" style="width:55px"></td><td><input data-t="${t._k}" data-f="servicio" value="${esc(t.servicio)}" style="width:80px"></td><td><input class="hora" data-t="${t._k}" data-f="hora_inicio" value="${t5(t.hora_inicio)}"></td><td><input class="hora" data-t="${t._k}" data-f="hora_fin" value="${t5(t.hora_fin)}"></td>
+        <td><input data-t="${t._k}" data-f="relevo" value="${esc(t.relevo)}" style="min-width:160px"></td><td><input data-t="${t._k}" data-f="tipologia" value="${esc(t.tipologia)}" style="min-width:140px"></td>
+        <td><select data-t="${t._k}" data-f="adaptado"><option value="" ${t.adaptado==null?'selected':''}>?</option><option value="true" ${t.adaptado===true?'selected':''}>Sí</option><option value="false" ${t.adaptado===false?'selected':''}>No</option></select></td>
+        <td><input data-t="${t._k}" data-f="observaciones" value="${esc(t.observaciones)}" style="width:120px"></td><td><button class="mini danger" data-delt="${t._k}">✕</button></td></tr>`
+    : `<tr><td class="muted">${t.orden ?? ''}</td><td><b>${esc(t.servicio)}</b></td><td>${t5(t.hora_inicio)}</td><td>${t5(t.hora_fin)}</td><td>${durTxt(t.hora_inicio, t.hora_fin)}</td><td class="wrap">${esc(t.relevo || '')}</td><td class="wrap">${esc(t.tipologia || '')}</td><td>${t.adaptado == null ? '—' : (t.adaptado ? 'Sí' : 'No')}</td><td class="wrap">${esc(t.observaciones || '')}</td></tr>`).join('');
+  $('#sec_turnos').innerHTML = `<div class="tblwrap"><table><thead><tr><th>#</th><th>Servicio</th><th>Inicio</th><th>Fin</th>${edit.on ? '' : '<th>Dur.</th>'}<th>Relevo</th><th>Tipología</th><th>Adaptado</th><th>Obs.</th>${edit.on ? '<th></th>' : ''}</tr></thead><tbody>${trs || '<tr><td colspan="9" class="muted">sin turnos</td></tr>'}</tbody></table></div>
+    ${edit.on ? '<button class="mini sec" id="addt" style="margin-top:4px">+ turno</button>' : ''}`;
+  if (!edit.on) return;
+  $('#sec_turnos').querySelectorAll('[data-t]').forEach(el => el.oninput = () => { const t = S.turnos.find(x => x._k === el.dataset.t); const f = el.dataset.f; t[f] = f === 'orden' ? (el.value === '' ? null : +el.value) : f === 'adaptado' ? (el.value === '' ? null : el.value === 'true') : (el.value.trim() || null); });
+  $('#sec_turnos').querySelectorAll('[data-delt]').forEach(b => b.onclick = () => { const i = S.turnos.findIndex(x => x._k === b.dataset.delt); if (S.turnos[i].id) S.del.turnos.push(S.turnos[i].id); S.turnos.splice(i, 1); renderTurnosSec(V); });
+  $('#addt').onclick = () => { S.turnos.push({ orden: S.turnos.length + 1, servicio: '', hora_inicio: null, hora_fin: null, relevo: null, tipologia: null, adaptado: null, observaciones: null, _k: 'n' + Math.random().toString(36).slice(2, 8) }); renderTurnosSec(V); };
+}
+function durTxt(a, b) { if (!a || !b) return ''; const m = t => { const [h, mi] = t.split(':').map(Number); return h * 60 + mi; }; let d = m(b) - m(a); if (d < 0) d += 1440; return `${Math.floor(d / 60)}h${String(d % 60).padStart(2, '0')}`; }
+// --- Notas
+function renderNotasSec(V) {
+  const S = edit.state; const rows = edit.on ? S.notas : V.notas;
+  if (edit.on) rows.forEach((n, i) => n._k = n._k || ('n' + i + '_' + Math.random().toString(36).slice(2, 6)));
+  const trs = rows.map(n => edit.on
+    ? `<tr><td><input type="number" data-n="${n._k}" data-f="numero" value="${n.numero ?? ''}" style="width:55px"></td><td><input data-n="${n._k}" data-f="texto" value="${esc(n.texto)}" style="width:100%;min-width:400px"></td><td><button class="mini danger" data-deln="${n._k}">✕</button></td></tr>`
+    : `<tr><td>${n.numero ?? ''}</td><td class="wrap">${esc(n.texto)}</td></tr>`).join('');
+  $('#sec_notas').innerHTML = `<table><thead><tr><th>(n)</th><th>Texto</th>${edit.on ? '<th></th>' : ''}</tr></thead><tbody>${trs || '<tr><td colspan="3" class="muted">sin notas</td></tr>'}</tbody></table>${edit.on ? '<button class="mini sec" id="addn" style="margin-top:4px">+ nota</button>' : ''}`;
+  if (!edit.on) return;
+  $('#sec_notas').querySelectorAll('[data-n]').forEach(el => el.oninput = () => { const n = S.notas.find(x => x._k === el.dataset.n); n[el.dataset.f] = el.dataset.f === 'numero' ? (el.value === '' ? null : +el.value) : el.value; });
+  $('#sec_notas').querySelectorAll('[data-deln]').forEach(b => b.onclick = () => { const i = S.notas.findIndex(x => x._k === b.dataset.deln); if (S.notas[i].id) S.del.notas.push(S.notas[i].id); S.notas.splice(i, 1); renderNotasSec(V); });
+  $('#addn').onclick = () => { S.notas.push({ numero: null, texto: '', _k: 'n' + Math.random().toString(36).slice(2, 8) }); renderNotasSec(V); };
+}
+
+// --- Guardar todo (cabecera, checkpoints, expediciones+horas, turnos, notas)
+async function guardarTodo(h, V) {
+  const S = edit.state; const vid = V.v.id; const b = $('#b_guardar'); b.disabled = true; b.textContent = 'Guardando…';
+  try {
+    // cabecera
+    const cab = {};
+    app.querySelectorAll('[data-h]').forEach(el => { let val = el.value; if (val === '') val = null; if (el.type === 'number' && val != null) val = +val; cab[el.dataset.h] = val; });
+    const cambiosCab = {}; for (const k in cab) if ((V.v[k] ?? null) !== (cab[k] ?? null)) cambiosCab[k] = cab[k];
+    if (Object.keys(cambiosCab).length) { const { error } = await sb.from('versiones').update(cambiosCab).eq('id', vid); if (error) throw error; }
+
+    // checkpoints
+    for (const id of S.del.cps) { const { error } = await sb.from('checkpoints').delete().eq('id', id); if (error) throw error; }
+    const cpId = {}; // _k -> id
+    for (const c of S.cps) {
+      if (!c.etiqueta) throw new Error('Hay un punto de control sin etiqueta');
+      if (c.parada_codigo) { const { error } = await sb.from('paradas').upsert({ codigo: c.parada_codigo }, { onConflict: 'codigo', ignoreDuplicates: true }); if (error) throw error; }
+      const rec = { version_id: vid, sentido: c.sentido, orden: c.orden, etiqueta: c.etiqueta, parada_codigo: c.parada_codigo || null };
+      if (c.id) {
+        const o = V.cps.find(x => x.id === c.id);
+        if (o && (o.orden !== rec.orden || o.etiqueta !== rec.etiqueta || (o.parada_codigo || null) !== rec.parada_codigo)) {
+          // evitar choque de unique(version,sentido,orden) al reordenar: orden temporal negativo
+          const { error } = await sb.from('checkpoints').update({ orden: -c.id }).eq('id', c.id); if (error) throw error;
+        }
+        cpId[c._k] = c.id;
+      } else {
+        const { data, error } = await sb.from('checkpoints').insert({ ...rec, orden: -Math.floor(Math.random() * 1e6) - 1 }).select().single(); if (error) throw error;
+        c.id = data.id; cpId[c._k] = data.id;
+      }
+    }
+    for (const c of S.cps) { const { error } = await sb.from('checkpoints').update({ orden: c.orden, etiqueta: c.etiqueta, parada_codigo: c.parada_codigo || null }).eq('id', c.id); if (error) throw error; }
+
+    // expediciones
+    for (const id of S.del.exps) { const { error } = await sb.from('expediciones').delete().eq('id', id); if (error) throw error; }
+    for (const e of S.exps) {
+      const rec = { version_id: vid, sentido: e.sentido, orden: e.orden ?? 0, servicio: e.servicio, linea_codigo: e.linea_codigo, marcas: e.marcas, observaciones: e.observaciones };
+      if (e.id) {
+        const o = V.exps.find(x => x.id === e.id);
+        const ch = {}; for (const k of ['orden', 'servicio', 'linea_codigo', 'marcas', 'observaciones']) if ((o[k] ?? null) !== (rec[k] ?? null)) ch[k] = rec[k];
+        if (Object.keys(ch).length) { const { error } = await sb.from('expediciones').update(ch).eq('id', e.id); if (error) throw error; }
+      } else { const { data, error } = await sb.from('expediciones').insert(rec).select().single(); if (error) throw error; e.id = data.id; }
+    }
+    // horas
+    const ups = [], dels = [];
+    for (const key in S.cells) {
+      const [ek, ck] = key.split('|'); const e = S.exps.find(x => x._k === ek); if (!e) continue;
+      const cid = /^\d+$/.test(ck) ? +ck : cpId[ck]; if (!cid) continue;
+      const val = S.cells[key].trim();
+      const prevH = V.hmap[e.id + ':' + cid];
+      if (!val) { if (prevH) dels.push(prevH.id); continue; }
+      const p = parseHoraCelda(val);
+      if (prevH && prevH.hora === (p.hora ? p.hora + ':00' : null) && (prevH.texto || null) === (p.texto || null)) continue;
+      ups.push({ expedicion_id: e.id, checkpoint_id: cid, hora: p.hora, texto: p.texto });
+    }
+    if (dels.length) { const { error } = await sb.from('expedicion_horas').delete().in('id', dels); if (error) throw error; }
+    if (ups.length) { const { error } = await sb.from('expedicion_horas').upsert(ups, { onConflict: 'expedicion_id,checkpoint_id' }); if (error) throw error; }
+
+    // turnos
+    for (const id of S.del.turnos) { const { error } = await sb.from('turnos').delete().eq('id', id); if (error) throw error; }
+    for (const t of S.turnos) {
+      if (!t.servicio) throw new Error('Hay un turno sin servicio');
+      const rec = { version_id: vid, orden: t.orden, servicio: t.servicio, hora_inicio: horaOrNull(t5(t.hora_inicio)), hora_fin: horaOrNull(t5(t.hora_fin)), relevo: t.relevo, tipologia: t.tipologia, adaptado: t.adaptado, observaciones: t.observaciones };
+      if (t.id) {
+        const o = V.turnos.find(x => x.id === t.id); const ch = {};
+        for (const k in rec) { const ov = (k === 'hora_inicio' || k === 'hora_fin') ? t5(o[k]) || null : (o[k] ?? null); if (ov !== (rec[k] ?? null)) ch[k] = rec[k]; }
+        delete ch.version_id;
+        if (Object.keys(ch).length) { const { error } = await sb.from('turnos').update(ch).eq('id', t.id); if (error) throw error; }
+      } else { const { error } = await sb.from('turnos').insert(rec); if (error) throw error; }
+    }
+    // notas
+    for (const id of S.del.notas) { const { error } = await sb.from('notas').delete().eq('id', id); if (error) throw error; }
+    for (const n of S.notas) {
+      if (!n.texto) continue;
+      if (n.id) { const o = V.notas.find(x => x.id === n.id); if (o.numero !== n.numero || o.texto !== n.texto) { const { error } = await sb.from('notas').update({ numero: n.numero, texto: n.texto }).eq('id', n.id); if (error) throw error; } }
+      else { const { error } = await sb.from('notas').insert({ version_id: vid, numero: n.numero, texto: n.texto }); if (error) throw error; }
+    }
+    edit = { on: false };
+    route();
+  } catch (e) { fail(e); b.disabled = false; b.textContent = 'Guardar todo'; }
+}
+
+// --- Diff entre versiones
+function renderDiff(P, V) {
+  const rowsT = v => Object.fromEntries(v.turnos.map(t => [t.servicio, `${t5(t.hora_inicio)}–${t5(t.hora_fin)} · ${t.relevo || ''} · ${t.tipologia || ''} · ${t.adaptado == null ? '?' : t.adaptado ? 'Sí' : 'No'}`]));
+  const rowsE = v => { const cpBy = {}; v.cps.forEach(c => cpBy[c.id] = c); const o = {}; v.exps.forEach(e => { const cs = v.cps.filter(c => c.sentido === e.sentido).sort((a, b) => a.orden - b.orden); o[`${e.sentido} #${e.orden}`] = `${e.servicio || ''} ${e.marcas || ''} | ` + cs.map(c => celdaTxt(v.hmap[e.id + ':' + c.id]) || '--').join(' | '); }); return o; };
+  const rowsN = v => Object.fromEntries(v.notas.map(n => [n.numero ?? n.texto.slice(0, 20), n.texto]));
+  const rowsC = v => Object.fromEntries(v.cps.map(c => [`${c.sentido} #${c.orden}`, `${c.etiqueta} ${c.parada_codigo || ''}`]));
+  const sec = (titulo, A, B) => {
+    const keys = [...new Set([...Object.keys(A), ...Object.keys(B)])].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+    let n = 0; const trs = keys.map(k => {
+      if (!(k in A)) { n++; return `<tr class="diff-add"><td>${esc(k)}</td><td></td><td>${esc(B[k])}</td></tr>`; }
+      if (!(k in B)) { n++; return `<tr class="diff-del"><td>${esc(k)}</td><td>${esc(A[k])}</td><td></td></tr>`; }
+      if (A[k] !== B[k]) { n++; return `<tr class="diff-chg"><td>${esc(k)}</td><td>${esc(A[k])}</td><td>${esc(B[k])}</td></tr>`; }
+      return '';
+    }).join('');
+    return `<h3>${titulo} <span class="muted small">${n} diferencia(s)</span></h3>${n ? `<div class="tblwrap"><table><thead><tr><th>Clave</th><th>${esc(P.v.etiqueta || 'anterior')} (${fdate(P.v.fecha_vigencia_inicio)})</th><th>${esc(V.v.etiqueta || 'esta')} (${fdate(V.v.fecha_vigencia_inicio)})</th></tr></thead><tbody>${trs}</tbody></table></div>` : '<p class="muted small">Sin cambios</p>'}`;
+  };
+  return `<div class="card"><h2>Comparación de versiones</h2><p class="muted small">Verde = añadido, rojo = eliminado, amarillo = modificado. Las expediciones se comparan por posición (sentido y nº de fila).</p>
+    ${sec('Turnos', rowsT(P), rowsT(V))}${sec('Puntos de control', rowsC(P), rowsC(V))}${sec('Expediciones', rowsE(P), rowsE(V))}${sec('Notas', rowsN(P), rowsN(V))}</div>`;
+}
+
+// ---------------------------------------------------------------------
+// Vista: Turnos (busqueda transversal)
+// ---------------------------------------------------------------------
+async function vTurnos() {
+  app.innerHTML = `<div class="card"><h2>Buscar turnos</h2><div class="row">
+    <div><label>Servicio (contiene)</label><input type="text" id="t_serv" placeholder="10.011"></div>
+    <div><label>Línea</label><input type="number" id="t_linea" style="width:90px"></div>
+    <div><label>Inicio desde</label><input type="text" id="t_h1" class="hora" placeholder="05:00" style="width:80px"></div>
+    <div><label>Inicio hasta</label><input type="text" id="t_h2" class="hora" placeholder="09:00" style="width:80px"></div>
+    <div><label>Relevo (contiene)</label><input type="text" id="t_rel"></div>
+    <div><label>Versiones</label><select id="t_est"><option value="vigente">solo vigentes</option><option value="">todas</option><option value="futuro">futuras</option><option value="historico">históricas</option></select></div>
+    <div><button id="t_go">Buscar</button></div></div><div id="t_res" style="margin-top:12px"></div></div>`;
+  const go = async () => {
+    let q = sb.from('v_turnos').select('*').order('servicio').order('hora_inicio').limit(1000);
+    const s = $('#t_serv').value.trim(), l = $('#t_linea').value, h1 = horaOrNull($('#t_h1').value), h2 = horaOrNull($('#t_h2').value), r = $('#t_rel').value.trim(), e = $('#t_est').value;
+    if (s) q = q.ilike('servicio', `%${s}%`); if (l) q = q.contains('lineas', [+l]); if (h1) q = q.gte('hora_inicio', h1); if (h2) q = q.lte('hora_inicio', h2); if (r) q = q.ilike('relevo', `%${r}%`); if (e) q = q.eq('estado', e);
+    const { data, error } = await q; if (error) return fail(error);
+    $('#t_res').innerHTML = `<p class="muted small">${data.length} turno(s)${data.length === 1000 ? ' (límite 1000, afina la búsqueda)' : ''}</p><div class="tblwrap"><table><thead><tr><th>Servicio</th><th>Inicio</th><th>Fin</th><th>Dur.</th><th>Relevo</th><th>Tipología</th><th>Adapt.</th><th>Horario</th><th>Versión</th></tr></thead><tbody>
+      ${data.map(t => `<tr><td><b>${esc(t.servicio)}</b></td><td>${t5(t.hora_inicio)}</td><td>${t5(t.hora_fin)}</td><td>${durTxt(t.hora_inicio, t.hora_fin)}</td><td class="wrap">${esc(t.relevo || '')}</td><td class="wrap">${esc(t.tipologia || '')}</td><td>${t.adaptado == null ? '—' : t.adaptado ? 'Sí' : 'No'}</td>
+        <td><a href="#/horario/${t.horario_id}?v=${t.version_id}">${esc(t.clave)}</a></td><td>${esc(t.version_etiqueta || '')} ${badge(t.estado)}</td></tr>`).join('')}</tbody></table></div>`;
+  };
+  $('#t_go').onclick = go; app.querySelectorAll('input').forEach(i => i.onkeydown = e => { if (e.key === 'Enter') go(); });
+  go();
+}
+
+// ---------------------------------------------------------------------
+// Vista: Paradas (catalogo + salidas por parada y hora)
+// ---------------------------------------------------------------------
+async function vParadas(params) {
+  const { data: paradas, error } = await sb.from('paradas').select('*').order('codigo'); if (error) throw error;
+  app.innerHTML = `<div class="split"><div class="card"><h2>Paradas</h2><input type="text" id="p_f" placeholder="Código o nombre…" style="width:100%">
+      ${esEditor() ? '<button class="mini sec" id="p_new" style="margin-top:6px">+ parada</button>' : ''}
+      <div class="tblwrap" style="margin-top:8px;max-height:65vh"><table><thead><tr><th>Código</th><th>Nombre</th></tr></thead><tbody id="p_list"></tbody></table></div></div>
+    <div class="card"><h2>Salidas por parada y hora</h2><div class="row">
+      <div><label>Parada (código)</label><input type="text" id="s_par" value="${esc(params.parada || '')}" style="width:100px"></div>
+      <div><label>o punto de control (texto)</label><input type="text" id="s_cp" placeholder="San Isidro"></div>
+      <div><label>Desde</label><input type="text" id="s_h1" class="hora" placeholder="08:00" style="width:80px"></div>
+      <div><label>Hasta</label><input type="text" id="s_h2" class="hora" placeholder="09:00" style="width:80px"></div>
+      <div><label>Calendario</label><select id="s_cal"><option value="">todos</option><option>LSF</option><option>Lxx</option><option>xSF</option><option>xxF</option><option>xSx</option></select></div>
+      <div><label>Versiones</label><select id="s_est"><option value="vigente">solo vigentes</option><option value="">todas</option></select></div>
+      <div><button id="s_go">Buscar</button></div></div><div id="s_res" style="margin-top:12px"></div></div></div>`;
+  const pintar = () => { const q = $('#p_f').value.toLowerCase(); $('#p_list').innerHTML = paradas.filter(p => (p.codigo + ' ' + (p.nombre || '')).toLowerCase().includes(q)).slice(0, 400).map(p => `<tr><td><a href="#" data-sel="${esc(p.codigo)}">${esc(p.codigo)}</a></td><td class="wrap">${esc(p.nombre || '')} ${esEditor() ? `<button class="mini sec" data-pe="${esc(p.codigo)}">✎</button>` : ''}</td></tr>`).join('');
+    $('#p_list').querySelectorAll('[data-sel]').forEach(a => a.onclick = ev => { ev.preventDefault(); $('#s_par').value = a.dataset.sel; go(); });
+    $('#p_list').querySelectorAll('[data-pe]').forEach(b => b.onclick = async () => { const p = paradas.find(x => x.codigo === b.dataset.pe); const n = prompt('Nombre de la parada ' + p.codigo, p.nombre || ''); if (n == null) return; const { error } = await sb.from('paradas').update({ nombre: n }).eq('codigo', p.codigo); if (error) return fail(error); p.nombre = n; pintar(); }); };
+  $('#p_f').oninput = pintar; pintar();
+  const pn = $('#p_new'); if (pn) pn.onclick = async () => { const c = prompt('Código de parada:'); if (!c) return; const n = prompt('Nombre:') || null; const { error } = await sb.from('paradas').insert({ codigo: c.trim(), nombre: n }); if (error) return fail(error); vParadas({}); };
+  const go = async () => {
+    const par = $('#s_par').value.trim(), cp = $('#s_cp').value.trim(), h1 = horaOrNull($('#s_h1').value), h2 = horaOrNull($('#s_h2').value), cal = $('#s_cal').value, est = $('#s_est').value;
+    if (!par && !cp) { $('#s_res').innerHTML = msg('info', 'Indica una parada o un punto de control.'); return; }
+    let q = sb.from('v_salidas').select('*').not('hora', 'is', null).order('hora').limit(1000);
+    if (par) q = q.eq('parada_codigo', par); if (cp) q = q.ilike('checkpoint', `%${cp}%`); if (h1) q = q.gte('hora', h1); if (h2) q = q.lte('hora', h2); if (cal) q = q.eq('calendario', cal); if (est) q = q.eq('estado', est);
+    const { data, error } = await q; if (error) return fail(error);
+    $('#s_res').innerHTML = `<p class="muted small">${data.length} salida(s)</p><div class="tblwrap"><table><thead><tr><th>Hora</th><th>Punto de control</th><th>Sentido</th><th>Servicio</th><th>Marcas</th><th>Horario</th><th>Versión</th></tr></thead><tbody>
+      ${data.map(s => `<tr><td><b>${t5(s.hora)}</b> ${esc(s.texto || '')}</td><td class="wrap">${esc(s.checkpoint)} ${s.parada_codigo ? '<span class="muted">' + esc(s.parada_codigo) + '</span>' : ''}</td><td>${s.sentido}</td><td>${esc(s.servicio || '')}${s.linea_codigo ? ' <span class="muted">L-' + s.linea_codigo + '</span>' : ''}</td><td>${esc(s.marcas || '')}</td>
+        <td><a href="#/horario/${s.horario_id}?v=${s.version_id}">${esc(s.clave)}</a></td><td>${esc(s.version_etiqueta || '')} ${badge(s.estado)}</td></tr>`).join('')}</tbody></table></div>
+      ${!data.length ? '<p class="muted small">Si no aparece nada: la rejilla de ese horario aún no está cargada (los PDF solo precargan turnos y notas; la rejilla se introduce a mano en cada versión).</p>' : ''}`;
+  };
+  $('#s_go').onclick = go; app.querySelectorAll('#s_par,#s_cp,#s_h1,#s_h2').forEach(i => i.onkeydown = e => { if (e.key === 'Enter') go(); });
+  if (params.parada) go();
+}
+
+// ---------------------------------------------------------------------
+// Vista: Historial de cambios
+// ---------------------------------------------------------------------
+async function vHistorial(params) {
+  app.innerHTML = `<div class="card"><h2>Historial de cambios</h2><div class="row">
+    <div><label>Tabla</label><select id="h_tabla"><option value="">todas</option>${['versiones','checkpoints','expediciones','expedicion_horas','turnos','notas','lineas','paradas','horarios'].map(t => `<option>${t}</option>`).join('')}</select></div>
+    <div><label>ID de versión</label><input type="number" id="h_vid" value="${esc(params.version_id || '')}" style="width:100px"></div>
+    <div><label>Usuario (contiene)</label><input type="text" id="h_user"></div>
+    <div><label>Desde fecha</label><input type="date" id="h_d1"></div>
+    <div><button id="h_go">Buscar</button></div></div><div id="h_res" style="margin-top:12px"></div></div>`;
+  const go = async () => {
+    let q = sb.from('cambios').select('*').order('fecha', { ascending: false }).limit(500);
+    const t = $('#h_tabla').value, v = $('#h_vid').value, u = $('#h_user').value.trim(), d = $('#h_d1').value;
+    if (t) q = q.eq('tabla', t); if (v) q = q.eq('version_id', +v); if (u) q = q.ilike('usuario_email', `%${u}%`); if (d) q = q.gte('fecha', d);
+    const { data, error } = await q; if (error) return fail(error);
+    const short = s => { if (s == null) return ''; if (s.length > 160) return esc(s.slice(0, 160)) + '…'; return esc(s); };
+    $('#h_res').innerHTML = `<p class="muted small">${data.length} cambio(s)${data.length === 500 ? ' (límite 500)' : ''}</p><div class="tblwrap"><table><thead><tr><th>Fecha</th><th>Usuario</th><th>Tabla</th><th>Registro</th><th>Versión</th><th>Acción</th><th>Campo</th><th>Antes</th><th>Después</th></tr></thead><tbody>
+      ${data.map(c => `<tr><td>${fts(c.fecha)}</td><td>${esc(c.usuario_email || '')}</td><td>${esc(c.tabla)}</td><td>${esc(c.registro_id)}</td><td>${c.version_id ? `<a href="#/historial?version_id=${c.version_id}">${c.version_id}</a>` : ''}</td><td>${esc(c.accion)}</td><td>${esc(c.campo || '')}</td><td class="wrap" title="${esc(c.valor_anterior)}">${short(c.valor_anterior)}</td><td class="wrap" title="${esc(c.valor_nuevo)}">${short(c.valor_nuevo)}</td></tr>`).join('')}</tbody></table></div>`;
+  };
+  $('#h_go').onclick = go; go();
+}
+
+// ---------------------------------------------------------------------
+// Vista: Importar JSON extraido de los PDF
+// ---------------------------------------------------------------------
+async function vImportar() {
+  if (!esEditor()) { app.innerHTML = msg('err', 'Solo editores'); return; }
+  app.innerHTML = `<div class="card"><h2>Importar datos extraídos de los PDF</h2>
+    <p>Selecciona el fichero <code>titsa_extraido.json</code> (carpeta <code>datos/</code>). Se crean líneas, horarios, versiones, turnos, notas y códigos de parada. Es idempotente: repetir la importación no duplica nada.</p>
+    <p class="muted small">Se omiten los documentos marcados como <i>duplicado</i> (reexportaciones del mismo PDF). La rejilla de expediciones NO viene de los PDF: se introduce a mano.</p>
+    <input type="file" id="i_file" accept=".json"> <button id="i_go" disabled>Importar</button>
+    <div id="i_log" style="margin-top:12px"></div></div>`;
+  let docs = null;
+  $('#i_file').onchange = async e => { const f = e.target.files[0]; if (!f) return; try { docs = JSON.parse(await f.text()); } catch (err) { return fail(err); }
+    const dup = docs.filter(d => d.estado_vigencia === 'duplicado').length;
+    $('#i_log').innerHTML = msg('info', `${docs.length} documentos en el fichero, ${dup} duplicados se omitirán, ${docs.length - dup} a importar.`); $('#i_go').disabled = false; };
+  $('#i_go').onclick = async () => {
+    $('#i_go').disabled = true; const log = $('#i_log'); let ok = 0, err = 0; const errores = [];
+    const lista = docs.filter(d => d.estado_vigencia !== 'duplicado');
+    for (let i = 0; i < lista.length; i++) {
+      const d = lista[i];
+      const { error } = await sb.rpc('importar_documento', { doc: d });
+      if (error) { err++; errores.push(`${d.archivo}: ${error.message}`); } else ok++;
+      log.innerHTML = msg('info', `Importando ${i + 1}/${lista.length}… correctos ${ok}, errores ${err}`);
+    }
+    log.innerHTML = msg(err ? 'err' : 'ok', `Terminado: ${ok} importados, ${err} errores.`) + (errores.length ? `<pre>${esc(errores.join('\n'))}</pre>` : '');
+  };
+}
+
+// ---------------------------------------------------------------------
+// Vista: Usuarios (roles)
+// ---------------------------------------------------------------------
+async function vUsuarios() {
+  if (!esEditor()) { app.innerHTML = msg('err', 'Solo editores'); return; }
+  const { data, error } = await sb.from('perfiles').select('*').order('email'); if (error) throw error;
+  app.innerHTML = `<div class="card"><h2>Usuarios y roles</h2><p class="muted small">Los usuarios se crean en Supabase (Authentication → Users → Add user). Aquí solo se asigna el rol: <b>editor</b> puede modificar; <b>lector</b> solo consulta.</p>
+    <table><thead><tr><th>Email</th><th>Rol</th><th>Alta</th></tr></thead><tbody>${data.map(p => `<tr><td>${esc(p.email)}</td><td><select data-rol="${p.id}"><option ${p.rol==='lector'?'selected':''}>lector</option><option ${p.rol==='editor'?'selected':''}>editor</option></select></td><td>${fts(p.creado_en)}</td></tr>`).join('')}</tbody></table></div>`;
+  app.querySelectorAll('[data-rol]').forEach(s => s.onchange = async () => { if (s.dataset.rol === user.id && s.value !== 'editor' && !confirm('Vas a quitarte a ti mismo el rol de editor. ¿Seguro?')) { s.value = 'editor'; return; } const { error } = await sb.from('perfiles').update({ rol: s.value }).eq('id', s.dataset.rol); if (error) fail(error); else if (s.dataset.rol === user.id) { await cargarPerfil(); route(); } });
+}
+
+boot();
+</script>
+</body>
+</html>
